@@ -1,24 +1,18 @@
-
-
+# OS files
 .DS_Store
-venv
+
+# Virtual environments
 venv/
-venv2
 venv2/
 
 # Editor directories and files
-.idea
-.vscode/*
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+.idea/
+.vscode/
 
-
-# Byte-compiled / optimized / DLL files
+# Python cache and compiled files
 __pycache__/
 *.py[cod]
+*.pyc
 
 # C extensions
 *.so
@@ -42,7 +36,7 @@ var/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
+# Test / coverage reports
 .tox/
 .coverage
 .cache
@@ -52,30 +46,34 @@ coverage.xml
 # Translations
 *.mo
 
-# Mr Developer
+# Developer tools
 .mr.developer.cfg
 .project
 .pydevproject
-
-# Rope
 .ropeproject
 
-# Django stuff:
+# Django / FastAPI logs
 *.log
 *.pot
 
 # Sphinx documentation
 docs/_build/
 
-# Local DB
+# Local database files
 *.sqlite3
-
- media
- media/
- static/
-
 db.sqlite3
-.env
-.pyc
 
+# Media / static
+media/
+static/
+
+# Environment & secret files
+.env
+*.env
+*.env.*
+
+# Python bytecode
+*.pyc
+
+# Custom scripts (optional)
 my_mig.bat

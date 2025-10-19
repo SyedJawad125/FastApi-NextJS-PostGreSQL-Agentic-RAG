@@ -44,20 +44,19 @@
 
 
 
-"""
-app/database.py - Database configuration
-"""
+# app/database.py
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from contextlib import contextmanager
 from app.core.config import settings
-from app.models.rag_model import Base
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Database URL (example for PostgreSQL, can be changed)
-# For SQLite: "sqlite:///./data/rag_system.db"
+# Define Base here only
+Base = declarative_base()
+
+# Database URL (PostgreSQL or SQLite fallback)
 DATABASE_URL = getattr(settings, "DATABASE_URL", "sqlite:///./data/rag_system.db")
 
 # Create engine

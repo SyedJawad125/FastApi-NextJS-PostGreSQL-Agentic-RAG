@@ -19,3 +19,41 @@ class GraphRelationType(str, Enum):
     USES = "uses"
     TRIGGERS = "triggers"
     SUPPORTS = "supports"
+
+class AgentType(str, Enum):
+    """Defines different types of agents."""
+    SYSTEM = "system"
+    USER = "user"
+
+from enum import Enum
+
+class RAGStrategy(str, Enum):
+    """Defines different RAG strategies."""
+    STANDARD = "standard"
+    HYBRID = "hybrid"
+    ADVANCED = "advanced"
+
+
+class QueryType(str, Enum):
+    """Defines different types of queries for Agentic RAG."""
+    USER_QUERY = "user_query"
+    SYSTEM_QUERY = "system_query"
+
+
+class ToolType(str, Enum):
+    """Defines different types of tools in the Agentic RAG system."""
+    SEARCH = "search"
+    RETRIEVAL = "retrieval"
+    SUMMARIZER = "summarizer"
+
+
+class AgentStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+class DocumentType(str, Enum):
+    PDF = "pdf"
+    TEXT = "text"
+    HTML = "html"
+    MARKDOWN = "markdown"

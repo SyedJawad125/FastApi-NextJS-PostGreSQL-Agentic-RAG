@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 from app.models.rag_model import Session as SessionModel
+from app.models.rag_model import Session
 
 
 class SessionCRUD:
@@ -12,7 +13,7 @@ class SessionCRUD:
     
     @staticmethod
     def create_session(
-        db: SessionModel,
+        db: Session,
         session_id: str = None,
         user_id: str = None,
         metadata: dict = None
@@ -29,12 +30,12 @@ class SessionCRUD:
         return session
     
     @staticmethod
-    def get_session(db: SessionModel, session_id: str) -> Optional[SessionModel]:
+    def get_session(db: Session, session_id: str) -> Optional[SessionModel]:
         """Get session by ID"""
         return db.query(SessionModel).filter(SessionModel.id == session_id).first()
     
     @staticmethod
-    def update_session_activity(db: SessionModel, session_id: str):
+    def update_session_activity(db: Session, session_id: str):
         """Update session last activity"""
         session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
         if session:
@@ -43,12 +44,12 @@ class SessionCRUD:
             db.commit()
     
     @staticmethod
-    def list_active_sessions(db: SessionModel) -> List[SessionModel]:
+    def list_active_sessions(db: Session) -> List[SessionModel]:
         """List active sessions"""
         return db.query(SessionModel).filter(SessionModel.is_active == True).all()
     
     @staticmethod
-    def deactivate_session(db: SessionModel, session_id: str):
+    def deactivate_session(db: Session, session_id: str):
         """Deactivate session"""
         session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
         if session:

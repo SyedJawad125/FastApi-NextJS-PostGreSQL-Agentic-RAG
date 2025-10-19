@@ -1,42 +1,104 @@
+# from sqlalchemy import create_engine
+# from sqlalchemy.ext.declarative import declarative_base
+# from sqlalchemy.orm import sessionmaker
+# from app.config import settings
+# import logging
+
+# # Configure logging
+# logging.basicConfig()
+# logger = logging.getLogger(__name__)
+# logger.setLevel(logging.INFO)
+
+# # Create PostgreSQL engine
+# engine = create_engine(
+#     settings.SQLALCHEMY_DATABASE_URL,
+#     echo=True,
+#     pool_pre_ping=True,
+#     pool_size=10,
+#     max_overflow=20
+# )
+
+# SessionLocal = sessionmaker(
+#     autocommit=False,
+#     autoflush=False,
+#     bind=engine
+# )
+
+# Base = declarative_base()
+
+# def get_db():
+#     db = SessionLocal()
+#     try:
+#         yield db
+#     finally:
+#         db.close()
+
+# # Verify connection
+# try:
+#     with engine.connect() as conn:
+#         logger.info(f"✅ Connected to PostgreSQL at: {settings.SQLALCHEMY_DATABASE_URL}")
+# except Exception as e:
+#     logger.error(f"❌ Failed to connect to PostgreSQL: {e}")
+#     raise
+
+
+
+
+"""
+app/database.py - Database configuration
+"""
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from app.config import settings
+from sqlalchemy.orm import sessionmaker, Session
+from contextlib import contextmanager
+from app.core.config import settings
+from app.models.rag_model import Base
 import logging
 
-# Configure logging
-logging.basicConfig()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
-# Create PostgreSQL engine
+# Database URL (example for PostgreSQL, can be changed)
+# For SQLite: "sqlite:///./data/rag_system.db"
+DATABASE_URL = getattr(settings, "DATABASE_URL", "sqlite:///./data/rag_system.db")
+
+# Create engine
 engine = create_engine(
-    settings.SQLALCHEMY_DATABASE_URL,
-    echo=True,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+    echo=False
 )
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+# Create session factory
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
 
-def get_db():
+def init_db():
+    """Initialize database tables"""
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
+    except Exception as e:
+        logger.error(f"Error creating database tables: {e}")
+        raise
+
+
+def get_db() -> Session:
+    """Get database session (dependency)"""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-# Verify connection
-try:
-    with engine.connect() as conn:
-        logger.info(f"✅ Connected to PostgreSQL at: {settings.SQLALCHEMY_DATABASE_URL}")
-except Exception as e:
-    logger.error(f"❌ Failed to connect to PostgreSQL: {e}")
-    raise
+
+@contextmanager
+def get_db_context():
+    """Get database session as context manager"""
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

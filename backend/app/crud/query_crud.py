@@ -1,9 +1,7 @@
 """
 app/crud/query_crud.py - Query CRUD operations
 """
-from typing import List, Optional
-import uuid
-from app.models.rag_model import Query, Session
+from app.models.rag_model import Query
 
 
 class QueryCRUD:

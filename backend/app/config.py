@@ -6,7 +6,7 @@ import warnings
 class Settings(BaseSettings):
     # Database configuration (using AnyUrl instead of PostgresDsn)
     SQLALCHEMY_DATABASE_URL: str = Field(
-        default="postgresql+psycopg2://postgres:admin@localhost:5432/FastApi_RAG_LLM",
+        default="postgresql+psycopg2://postgres:admin@localhost:5432/FastApi_Agentice_RAG_with_ClaudAi",
         description="PostgreSQL connection URL"
     )
     

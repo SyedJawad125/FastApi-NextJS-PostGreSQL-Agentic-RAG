@@ -16,6 +16,9 @@ from app.schemas.rag_schemas import (
     HealthCheckResponse
 )
 from app.core.config import get_db
+from app.services.agents.critic_agent import CriticAgent
+from app.services.agents.researcher_agent import ResearcherAgent
+from app.services.agents.writer_agent import WriterAgent
 from app.services.rag_service import RAGService
 
 router = APIRouter(prefix="/api/rag", tags=["RAG System"])
@@ -178,3 +181,43 @@ async def health_check():
             "database": "operational"
         }
     )
+
+
+@router.post("/multi-agent-query")
+async def multi_agent_query(request: RAGQueryRequest):
+    """Multi-agent query with Researcher + Writer + Critic"""
+    
+    # Initialize agents
+    researcher = ResearcherAgent(llm_service, vectorstore)
+    writer = WriterAgent(llm_service)
+    critic = CriticAgent(llm_service)
+    
+    # Execute multi-agent flow
+    research = await researcher.execute(request.query)
+    content = await writer.execute(request.query, {
+        "research_findings": research["output"],
+        "sources": research["sources"]
+    })
+    evaluation = await critic.execute(request.query, {
+        "content": content["output"],
+        "research_findings": research["output"]
+    })
+    
+    return {
+        "answer": content["output"],
+        "research": research["output"],
+        "evaluation": evaluation["output"],
+        "score": evaluation["score"],
+        "verdict": evaluation["verdict"]
+    }
+# ```
+
+# ## 🧪 Test in Postman:
+# ```
+# POST http://localhost:8000/api/rag/multi-agent-query
+# Content-Type: application/json
+
+# {
+#   "query": "Explain machine learning",
+#   "strategy": "multi_agent"
+# }

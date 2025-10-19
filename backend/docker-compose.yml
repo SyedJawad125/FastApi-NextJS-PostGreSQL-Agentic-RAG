@@ -1,0 +1,63 @@
+# ============================================================================
+# docker-compose.yml - Docker Compose configuration
+# ============================================================================
+version: '3.8'
+
+services:
+  # Main API service
+  api:
+    build: .
+    container_name: agentic_rag_api
+    ports:
+      - "8000:8000"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-llama-3.1-70b-versatile}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - rag_network
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: agentic_rag_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - rag_network
+    command: redis-server --appendonly yes
+
+  # PostgreSQL database (optional)
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentic_rag_db
+    environment:
+      - POSTGRES_USER=raguser
+      - POSTGRES_PASSWORD=ragpass
+      - POSTGRES_DB=ragdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - rag_network
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  rag_network:
+    driver: bridge

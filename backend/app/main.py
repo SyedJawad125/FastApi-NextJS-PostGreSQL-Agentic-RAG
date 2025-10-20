@@ -1,6 +1,6 @@
 """
 ===================================================================
-app/main.py - Complete FastAPI Application Entry Point (Cleaned)
+app/main.py - Fixed FastAPI Application Entry Point
 ===================================================================
 """
 from fastapi import FastAPI
@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import logging.config
 from pathlib import Path
 from datetime import datetime
-
+from app.routers.rag_router import router as rag_router
 from app.core.config import settings, init_db, engine
 
 # Configure logging
@@ -150,42 +150,71 @@ app.add_middleware(
     allow_headers=settings.CORS_HEADERS
 )
 
-# Import and include routers
-# Import and include routers
-try:
-    from app.routers.rag_router import router as rag_router
-    app.include_router(rag_router, prefix="/api/rag", tags=["RAG"])
-    logger.info("[OK] RAG router loaded")
-except ImportError as e:
-    logger.warning(f"RAG router not found: {e}")
+# Import and include routers - CORRECTED ORDER
+logger.info("Loading routers...")
 
+# RAG Router - ADD PREFIX HERE
+try:
+    
+    # ✅ CORRECTED: Include WITH prefix
+    app.include_router(rag_router)
+    logger.info("[OK] RAG router loaded")
+    
+    # Debug: Print registered routes
+    for route in app.routes:
+        if hasattr(route, 'path') and '/api/rag' in route.path:
+            logger.info(f"  - {route.methods} {route.path}")
+            
+except ImportError as e:
+    logger.error(f"[ERROR] RAG router not found: {e}")
+    import traceback
+    traceback.print_exc()
+except Exception as e:
+    logger.error(f"[ERROR] Failed to load RAG router: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Agent Router
 try:
     from app.routers.agent_router import agent_router
     app.include_router(agent_router, prefix="/api/agent", tags=["Agent"])
     logger.info("[OK] Agent router loaded")
 except ImportError as e:
     logger.warning(f"Agent router not found: {e}")
+except Exception as e:
+    logger.warning(f"Failed to load agent router: {e}")
 
+# Graph Router
 try:
     from app.routers.graph_router import graph_router
     app.include_router(graph_router, prefix="/api/graph", tags=["Graph"])
     logger.info("[OK] Graph router loaded")
 except ImportError as e:
     logger.warning(f"Graph router not found: {e}")
+except Exception as e:
+    logger.warning(f"Failed to load graph router: {e}")
 
+# Document Router
 try:
     from app.routers.document_router import document_router
     app.include_router(document_router, prefix="/api/documents", tags=["Documents"])
     logger.info("[OK] Document router loaded")
 except ImportError as e:
     logger.warning(f"Document router not found: {e}")
+except Exception as e:
+    logger.warning(f"Failed to load document router: {e}")
 
+# Admin Router
 try:
     from app.routers.admin_router import router as admin_router
     app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
     logger.info("[OK] Admin router loaded")
 except ImportError as e:
     logger.warning(f"Admin router not found: {e}")
+except Exception as e:
+    logger.warning(f"Failed to load admin router: {e}")
+
+logger.info("All routers loaded")
 
 
 # Root endpoint
@@ -303,6 +332,21 @@ async def global_exception_handler(request, exc):
             "timestamp": datetime.now().isoformat()
         }
     )
+
+
+# Debug endpoint to list all routes
+@app.get("/debug/routes", tags=["Debug"])
+async def list_routes():
+    """List all registered routes (for debugging)"""
+    routes = []
+    for route in app.routes:
+        if hasattr(route, 'path') and hasattr(route, 'methods'):
+            routes.append({
+                "path": route.path,
+                "methods": list(route.methods),
+                "name": route.name
+            })
+    return {"total_routes": len(routes), "routes": routes}
 
 
 if __name__ == "__main__":

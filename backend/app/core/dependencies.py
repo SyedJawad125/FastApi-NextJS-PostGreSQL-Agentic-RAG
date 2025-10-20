@@ -619,3 +619,9 @@ def check_dependencies_health() -> dict:
         health["graph_store"] = f"error: {str(e)}"
     
     return health
+
+
+# ✅ Add this at the bottom of dependencies.py
+def get_rag_service():
+    """Alias for backward compatibility with rag_router"""
+    return get_orchestrator()

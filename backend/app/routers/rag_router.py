@@ -1,6 +1,6 @@
 """
 ===================================================================
-app/routers/rag_router.py - CORRECTED Main RAG Router
+app/routers/rag_router.py - FIXED (No prefix in router)
 ===================================================================
 """
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
@@ -9,13 +9,10 @@ from typing import List, Dict, Any
 import time
 from datetime import datetime
 import uuid
+import logging
 
-from app.schemas.rag_schemas import (
-    RAGQueryRequest,
-    RAGQueryResponse,
-    DocumentUploadResponse,
-    HealthCheckResponse
-)
+# Correct imports
+from app.schemas.rag_schemas import RAGQueryRequest, RAGQueryResponse, HealthCheckResponse, DocumentUploadResponse
 from app.core.config import get_db
 from app.models.rag_model import (
     Document,
@@ -23,15 +20,14 @@ from app.models.rag_model import (
     Session as SessionModel,
     AgentExecution
 )
-from app.services.agents.critic_agent import CriticAgent
-from app.services.agents.researcher_agent import ResearcherAgent
-from app.services.agents.writer_agent import WriterAgent
-from app.services.rag_service import RAGService
 
-router = APIRouter(prefix="/api/rag", tags=["RAG System"])
+# Import RAG service - will be initialized on first use
+from app.core.dependencies import get_rag_service
 
-# Initialize RAG service
-rag_service = RAGService()
+logger = logging.getLogger(__name__)
+
+# ❌ REMOVE PREFIX HERE - it's added in main.py
+router = APIRouter(tags=["RAG System"])
 
 
 @router.post("/query", response_model=RAGQueryResponse)
@@ -48,7 +44,11 @@ async def query_rag(
     - auto: Automatic strategy selection
     """
     try:
+        logger.info(f"Received query: {request.query[:50]}...")
         start_time = time.time()
+        
+        # Get RAG service
+        rag_service = get_rag_service()
         
         # Process query based on strategy
         if request.strategy == "simple":
@@ -64,8 +64,9 @@ async def query_rag(
             )
         
         processing_time = time.time() - start_time
+        logger.info(f"Query processed in {processing_time:.2f}s")
         
-        # Save query to database using correct model name
+        # Save query to database
         db_query = QueryModel(
             id=str(uuid.uuid4()),
             query_text=request.query,
@@ -96,6 +97,7 @@ async def query_rag(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Query processing failed: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
 
@@ -111,6 +113,8 @@ async def upload_document(
     Supports: PDF, TXT, DOCX
     """
     try:
+        logger.info(f"Received file upload: {file.filename}")
+        
         # Validate file type
         allowed_types = [
             "application/pdf", 
@@ -121,21 +125,28 @@ async def upload_document(
         if file.content_type not in allowed_types:
             raise HTTPException(
                 status_code=400, 
-                detail=f"File type not supported. Allowed: PDF, TXT, DOCX"
+                detail=f"File type not supported. Allowed: PDF, TXT, DOCX. Got: {file.content_type}"
             )
         
         # Read file content
+        logger.info("Reading file content...")
         content = await file.read()
+        logger.info(f"File read: {len(content)} bytes")
         
         if len(content) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty")
         
+        # Get RAG service
+        rag_service = get_rag_service()
+        
         # Process document
+        logger.info("Processing document...")
         result = await rag_service.process_document(
             filename=file.filename,
             content=content,
             content_type=file.content_type
         )
+        logger.info(f"Document processed: {result['chunks_count']} chunks created")
         
         # Save to database
         db_doc = Document(
@@ -156,6 +167,8 @@ async def upload_document(
         db.commit()
         db.refresh(db_doc)
         
+        logger.info(f"Document saved to database: {db_doc.id}")
+        
         return DocumentUploadResponse(
             document_id=db_doc.id,
             filename=file.filename,
@@ -167,6 +180,7 @@ async def upload_document(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Document upload failed: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Document upload failed: {str(e)}")
 
@@ -177,13 +191,7 @@ async def list_documents(
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    """
-    List all processed documents
-    
-    Query params:
-    - skip: Number of documents to skip (pagination)
-    - limit: Maximum number of documents to return
-    """
+    """List all processed documents"""
     try:
         documents = db.query(Document).offset(skip).limit(limit).all()
         total_count = db.query(Document).count()
@@ -208,6 +216,7 @@ async def list_documents(
             ]
         }
     except Exception as e:
+        logger.error(f"Failed to fetch documents: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch documents: {str(e)}")
 
 
@@ -239,6 +248,7 @@ async def get_document(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Failed to fetch document: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch document: {str(e)}")
 
 
@@ -267,6 +277,7 @@ async def delete_document(
         raise
     except Exception as e:
         db.rollback()
+        logger.error(f"Failed to delete document: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 
@@ -276,13 +287,7 @@ async def list_queries(
     skip: int = 0,
     db: Session = Depends(get_db)
 ):
-    """
-    List recent queries
-    
-    Query params:
-    - limit: Maximum number of queries to return (default: 10)
-    - skip: Number of queries to skip (pagination)
-    """
+    """List recent queries"""
     try:
         queries = db.query(QueryModel).order_by(
             QueryModel.created_at.desc()
@@ -310,6 +315,7 @@ async def list_queries(
             ]
         }
     except Exception as e:
+        logger.error(f"Failed to fetch queries: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch queries: {str(e)}")
 
 
@@ -341,6 +347,7 @@ async def get_query(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Failed to fetch query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch query: {str(e)}")
 
 
@@ -348,10 +355,12 @@ async def get_query(
 async def health_check(db: Session = Depends(get_db)):
     """Health check endpoint with database verification"""
     try:
+        from sqlalchemy import text
         # Test database connection
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db_status = "operational"
-    except:
+    except Exception as e:
+        logger.error(f"Database health check failed: {str(e)}")
         db_status = "error"
     
     return HealthCheckResponse(
@@ -370,21 +379,19 @@ async def health_check(db: Session = Depends(get_db)):
 async def get_statistics(db: Session = Depends(get_db)):
     """Get system statistics"""
     try:
+        from sqlalchemy import func
+        
         total_documents = db.query(Document).count()
         total_queries = db.query(QueryModel).count()
-        total_chunks = db.query(Document).with_entities(
-            db.func.sum(Document.chunks_count)
-        ).scalar() or 0
+        total_chunks = db.query(func.sum(Document.chunks_count)).scalar() or 0
         
         # Get average processing time
-        avg_processing_time = db.query(QueryModel).with_entities(
-            db.func.avg(QueryModel.processing_time)
-        ).scalar() or 0
+        avg_processing_time = db.query(func.avg(QueryModel.processing_time)).scalar() or 0
         
         # Get strategy distribution
         strategy_stats = db.query(
             QueryModel.strategy_used,
-            db.func.count(QueryModel.id)
+            func.count(QueryModel.id)
         ).group_by(QueryModel.strategy_used).all()
         
         return {
@@ -397,87 +404,8 @@ async def get_statistics(db: Session = Depends(get_db)):
             }
         }
     except Exception as e:
+        logger.error(f"Failed to fetch statistics: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch statistics: {str(e)}")
-
-
-@router.post("/multi-agent-query")
-async def multi_agent_query(
-    request: RAGQueryRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    Multi-agent query with Researcher + Writer + Critic
-    
-    This endpoint uses three specialized agents:
-    1. Researcher: Finds and retrieves relevant information
-    2. Writer: Generates comprehensive answer
-    3. Critic: Evaluates quality and provides feedback
-    """
-    try:
-        start_time = time.time()
-        
-        # Initialize agents (you'll need to pass proper dependencies)
-        # Note: You need to implement llm_service and vectorstore
-        # For now, this is a placeholder showing the structure
-        
-        from app.core.dependencies import get_llm_service, get_vectorstore
-        
-        llm_service = get_llm_service()
-        vectorstore = get_vectorstore()
-        
-        researcher = ResearcherAgent(llm_service, vectorstore)
-        writer = WriterAgent(llm_service)
-        critic = CriticAgent(llm_service)
-        
-        # Execute multi-agent flow
-        research = await researcher.execute(request.query)
-        
-        content = await writer.execute(request.query, {
-            "research_findings": research["output"],
-            "sources": research["sources"]
-        })
-        
-        evaluation = await critic.execute(request.query, {
-            "content": content["output"],
-            "research_findings": research["output"]
-        })
-        
-        processing_time = time.time() - start_time
-        
-        # Save to database
-        db_query = QueryModel(
-            id=str(uuid.uuid4()),
-            query_text=request.query,
-            answer=content["output"],
-            strategy_used="multi_agent",
-            processing_time=processing_time,
-            confidence_score=evaluation.get("score", 0.0),
-            agent_steps_count=3,  # researcher + writer + critic
-            session_id=request.session_id,
-            metadata={
-                "research": research["output"],
-                "evaluation": evaluation["output"],
-                "verdict": evaluation["verdict"],
-                "agents_used": ["researcher", "writer", "critic"]
-            }
-        )
-        db.add(db_query)
-        db.commit()
-        
-        return {
-            "query": request.query,
-            "answer": content["output"],
-            "research": research["output"],
-            "evaluation": evaluation["output"],
-            "score": evaluation["score"],
-            "verdict": evaluation["verdict"],
-            "processing_time": processing_time,
-            "agents_used": ["researcher", "writer", "critic"]
-        }
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Multi-agent query failed: {str(e)}")
 
 
 @router.post("/sessions")
@@ -506,6 +434,7 @@ async def create_session(
         }
     except Exception as e:
         db.rollback()
+        logger.error(f"Failed to create session: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 
@@ -545,4 +474,5 @@ async def get_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Failed to fetch session: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch session: {str(e)}")

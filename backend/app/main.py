@@ -151,40 +151,41 @@ app.add_middleware(
 )
 
 # Import and include routers
+# Import and include routers
 try:
     from app.routers.rag_router import router as rag_router
-    app.include_router(rag_router)
+    app.include_router(rag_router, prefix="/api/rag", tags=["RAG"])
     logger.info("[OK] RAG router loaded")
 except ImportError as e:
     logger.warning(f"RAG router not found: {e}")
 
 try:
     from app.routers.agent_router import agent_router
-    app.include_router(agent_router)
+    app.include_router(agent_router, prefix="/api/agent", tags=["Agent"])
     logger.info("[OK] Agent router loaded")
-except ImportError:
-    logger.warning("Agent router not found - skipping")
+except ImportError as e:
+    logger.warning(f"Agent router not found: {e}")
 
 try:
     from app.routers.graph_router import graph_router
-    app.include_router(graph_router)
+    app.include_router(graph_router, prefix="/api/graph", tags=["Graph"])
     logger.info("[OK] Graph router loaded")
-except ImportError:
-    logger.warning("Graph router not found - skipping")
+except ImportError as e:
+    logger.warning(f"Graph router not found: {e}")
 
 try:
     from app.routers.document_router import document_router
-    app.include_router(document_router)
+    app.include_router(document_router, prefix="/api/documents", tags=["Documents"])
     logger.info("[OK] Document router loaded")
-except ImportError:
-    logger.warning("Document router not found - skipping")
+except ImportError as e:
+    logger.warning(f"Document router not found: {e}")
 
 try:
     from app.routers.admin_router import router as admin_router
-    app.include_router(admin_router)
+    app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
     logger.info("[OK] Admin router loaded")
-except ImportError:
-    logger.warning("Admin router not found - skipping")
+except ImportError as e:
+    logger.warning(f"Admin router not found: {e}")
 
 
 # Root endpoint

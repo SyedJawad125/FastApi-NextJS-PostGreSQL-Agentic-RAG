@@ -19,7 +19,7 @@
 #     def __init__(self):
 #         # Initialize Groq client
 #         self.groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-#         self.model = os.getenv("LLM_MODEL", "llama-3.1-70b-versatile")
+#         self.model = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
         
 #         # Initialize embedding model
 #         self.embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')

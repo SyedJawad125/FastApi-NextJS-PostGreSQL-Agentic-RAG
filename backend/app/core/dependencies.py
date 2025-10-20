@@ -42,7 +42,7 @@ class LLMService:
         max_tokens: int = None
     ):
         self.api_key = api_key or os.getenv("GROQ_API_KEY")
-        self.model = model or os.getenv("LLM_MODEL", "llama-3.1-70b-versatile")
+        self.model = model or os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
         self.temperature = temperature or float(os.getenv("TEMPERATURE", "0.7"))
         self.max_tokens = max_tokens or int(os.getenv("MAX_TOKENS", "2000"))
         
@@ -621,7 +621,8 @@ def check_dependencies_health() -> dict:
     return health
 
 
-# ✅ Add this at the bottom of dependencies.py
+# ✅ Add this at the bottom of dependencies.py - UPDATED
 def get_rag_service():
-    """Alias for backward compatibility with rag_router"""
-    return get_orchestrator()
+    """Get RAG service for router compatibility"""
+    from app.services.orchestrator import get_rag_orchestrator
+    return get_rag_orchestrator()

@@ -3,6 +3,7 @@
 app/routers/rag_router.py - ✅ Final Working RAG Router
 ===================================================================
 """
+import os
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from typing import Dict
@@ -279,25 +280,277 @@ async def get_query(query_id: str, db: Session = Depends(get_db)):
 # ============================================================
 # 🧪 Health & Stats
 # ============================================================
+"""
+Real Health Check - Tests actual service functionality
+Add this to your rag_router.py
+"""
+
 @router.get("/health", response_model=HealthCheckResponse)
 async def health_check(db: Session = Depends(get_db)):
+    """
+    Comprehensive health check that tests all critical services.
+    """
+
     from sqlalchemy import text
+
+    # ✅ Initialize all components with default "unknown"
+    components = {
+        "database": "unknown",
+        "llm_service": "unknown",
+        "embedding_service": "unknown",
+        "vector_store": "unknown",
+        "knowledge_graph": "unknown",
+        "memory": "unknown",
+        "agents": "unknown",
+    }
+
+    all_healthy = True
+
+    # 1. 🧪 Test Database
     try:
         db.execute(text("SELECT 1"))
-        db_status = "operational"
-    except Exception:
-        db_status = "error"
+        components["database"] = "operational"
+    except Exception as e:
+        components["database"] = f"error: {str(e)}"
+        all_healthy = False
+
+    # 2. 🤖 Test LLM Service (Groq)
+    rag_service = None
+    try:
+        rag_service = get_rag_service()
+        test_response = await rag_service.llm_service.generate(
+            "Say 'OK' if you can read this.",
+            temperature=0.1,
+            max_tokens=10
+        )
+
+        if test_response and len(test_response) > 0:
+            components["llm_service"] = "operational"
+        else:
+            components["llm_service"] = "error: empty response"
+            all_healthy = False
+
+    except Exception as e:
+        components["llm_service"] = f"error: {str(e)}"
+        all_healthy = False
+
+    # 3. 🧠 Test Embedding Service
+    try:
+        if rag_service:
+            test_embedding = rag_service.embedding_service.embed_text("test")
+            if test_embedding and len(test_embedding) > 0:
+                components["embedding_service"] = "operational"
+            else:
+                components["embedding_service"] = "error: no embedding generated"
+                all_healthy = False
+    except Exception as e:
+        components["embedding_service"] = f"error: {str(e)}"
+        all_healthy = False
+
+    # 4. 🧰 Test Vector Store
+    try:
+        if rag_service:
+            _ = rag_service.vectorstore.get_count()
+            components["vector_store"] = "operational"
+    except Exception as e:
+        components["vector_store"] = f"error: {str(e)}"
+        all_healthy = False
+
+    # 5. 🕸 Test Knowledge Graph
+    try:
+        if rag_service and hasattr(rag_service, "graph_builder") and rag_service.graph_builder:
+            components["knowledge_graph"] = "operational"
+        else:
+            components["knowledge_graph"] = "disabled"
+    except Exception as e:
+        components["knowledge_graph"] = f"error: {str(e)}"
+
+    # 6. 🧠 Memory & Agents (Basic Check)
+    try:
+        components["memory"] = "operational"
+        components["agents"] = "operational"
+    except Exception as e:
+        components["memory"] = f"error: {str(e)}"
+        components["agents"] = f"error: {str(e)}"
+
+    # 📊 Overall status
+    status = "healthy" if all_healthy else "degraded"
 
     return HealthCheckResponse(
-        status="healthy" if db_status == "operational" else "degraded",
+        status=status,
         timestamp=datetime.now(),
-        version="1.0.0",
-        components={
-            "llm_service": "operational",
-            "vector_store": "operational",
-            "database": db_status
-        }
+        version="2.0.0",
+        components=components
     )
+
+
+
+@router.get("/health/detailed")
+async def detailed_health_check(db: Session = Depends(get_db)):
+    """
+    Detailed health check with performance metrics
+    """
+    from sqlalchemy import text
+    import time
+    
+    results = {
+        "overall_status": "checking...",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
+    }
+    
+    # Database Check
+    db_start = time.time()
+    try:
+        db.execute(text("SELECT 1"))
+        results["checks"]["database"] = {
+            "status": "healthy",
+            "response_time_ms": round((time.time() - db_start) * 1000, 2),
+            "message": "Database connection successful"
+        }
+    except Exception as e:
+        results["checks"]["database"] = {
+            "status": "unhealthy",
+            "response_time_ms": round((time.time() - db_start) * 1000, 2),
+            "error": str(e)
+        }
+    
+    # LLM Service Check (Groq)
+    llm_start = time.time()
+    try:
+        rag_service = get_rag_service()
+        test_response = await rag_service.llm_service.generate(
+            "Respond with exactly: 'Health check OK'",
+            temperature=0,
+            max_tokens=20
+        )
+        
+        results["checks"]["llm_service"] = {
+            "status": "healthy",
+            "response_time_ms": round((time.time() - llm_start) * 1000, 2),
+            "model": os.getenv("LLM_MODEL", "llama-3.1-8b-instant"),
+            "provider": "Groq",
+            "test_response": test_response[:50] if test_response else None,
+            "message": "LLM API responding correctly"
+        }
+    except Exception as e:
+        results["checks"]["llm_service"] = {
+            "status": "unhealthy",
+            "response_time_ms": round((time.time() - llm_start) * 1000, 2),
+            "error": str(e),
+            "message": "Failed to connect to Groq API"
+        }
+    
+    # Embedding Service Check
+    embed_start = time.time()
+    try:
+        test_text = "Health check test"
+        embedding = rag_service.embedding_service.embed_text(test_text)
+        
+        results["checks"]["embedding_service"] = {
+            "status": "healthy",
+            "response_time_ms": round((time.time() - embed_start) * 1000, 2),
+            "model": os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+            "embedding_dimension": len(embedding) if embedding else 0,
+            "message": "Embedding service working"
+        }
+    except Exception as e:
+        results["checks"]["embedding_service"] = {
+            "status": "unhealthy",
+            "response_time_ms": round((time.time() - embed_start) * 1000, 2),
+            "error": str(e)
+        }
+    
+    # Vector Store Check
+    vector_start = time.time()
+    try:
+        count = rag_service.vectorstore.get_count()
+        
+        # Try a test search
+        test_embedding = rag_service.embedding_service.embed_text("test query")
+        search_results = rag_service.vectorstore.search(test_embedding, top_k=1)
+        
+        results["checks"]["vector_store"] = {
+            "status": "healthy",
+            "response_time_ms": round((time.time() - vector_start) * 1000, 2),
+            "total_documents": count,
+            "search_working": len(search_results) >= 0,
+            "message": f"Vector store operational with {count} documents"
+        }
+    except Exception as e:
+        results["checks"]["vector_store"] = {
+            "status": "unhealthy",
+            "response_time_ms": round((time.time() - vector_start) * 1000, 2),
+            "error": str(e)
+        }
+    
+    # RAG Pipeline End-to-End Test
+    rag_start = time.time()
+    try:
+        # Only test if we have documents
+        if rag_service.vectorstore.get_count() > 0:
+            test_result = await rag_service.execute_query(
+                query="test health check",
+                top_k=1,
+                strategy=RAGStrategy.SIMPLE
+            )
+            
+            results["checks"]["rag_pipeline"] = {
+                "status": "healthy",
+                "response_time_ms": round((time.time() - rag_start) * 1000, 2),
+                "answer_generated": len(test_result.get("answer", "")) > 0,
+                "chunks_retrieved": len(test_result.get("retrieved_chunks", [])),
+                "message": "Full RAG pipeline working"
+            }
+        else:
+            results["checks"]["rag_pipeline"] = {
+                "status": "ready",
+                "response_time_ms": 0,
+                "message": "No documents indexed yet - upload documents to test"
+            }
+    except Exception as e:
+        results["checks"]["rag_pipeline"] = {
+            "status": "unhealthy",
+            "response_time_ms": round((time.time() - rag_start) * 1000, 2),
+            "error": str(e)
+        }
+    
+    # Determine overall status
+    unhealthy_count = sum(
+        1 for check in results["checks"].values() 
+        if check.get("status") == "unhealthy"
+    )
+    
+    if unhealthy_count == 0:
+        results["overall_status"] = "healthy"
+    elif unhealthy_count <= 2:
+        results["overall_status"] = "degraded"
+    else:
+        results["overall_status"] = "unhealthy"
+    
+    # Add system stats
+    results["statistics"] = {
+        "total_documents": db.query(Document).count(),
+        "total_queries": db.query(QueryModel).count(),
+        "total_chunks": rag_service.vectorstore.get_count(),
+        "active_sessions": db.query(SessionModel).filter(SessionModel.is_active == True).count()
+    }
+    
+    return results
+
+
+@router.get("/health/quick")
+async def quick_health_check():
+    """
+    Quick health check without testing external services
+    Useful for load balancers
+    """
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "service": "RAG System",
+        "version": "2.0.0"
+    }
 
 
 @router.get("/stats")

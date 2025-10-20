@@ -27,11 +27,26 @@ class AgentType(str, Enum):
 
 from enum import Enum
 
-class RAGStrategy(str, Enum):
-    """Defines different RAG strategies."""
-    STANDARD = "standard"
+# class RAGStrategy(str, Enum):
+#     """Defines different RAG strategies."""
+#     STANDARD = "standard"
+#     HYBRID = "hybrid"
+#     ADVANCED = "advanced"
+
+#     SIMPLE = "simple"
+#     AGENTIC = "agentic" 
+#     GRAPH = "graph"
+#     MULTI_AGENT = "multi_agent"
+#     HYBRID = "hybrid"
+#     AUTO = "auto"
+
+class RAGStrategy(Enum):
+    SIMPLE = "simple"
+    AGENTIC = "agentic" 
+    GRAPH = "graph"
+    MULTI_AGENT = "multi_agent"
     HYBRID = "hybrid"
-    ADVANCED = "advanced"
+    AUTO = "auto"
 
 
 class QueryType(str, Enum):

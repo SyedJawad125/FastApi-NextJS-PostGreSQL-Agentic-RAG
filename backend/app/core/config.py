@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     GROQ_API_KEY: str
     OPENAI_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "llama-3.1-70b-versatile"
+    LLM_MODEL: str = "llama-3.1-8b-instant"
     TEMPERATURE: float = 0.7
     MAX_TOKENS: int = 2000
     

@@ -178,6 +178,44 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
 
 
 # ============================================================
+# 🧹 Clear All Documents Endpoint
+# ============================================================
+@router.delete("/documents/clear")
+async def clear_all_documents(db: Session = Depends(get_db)):
+    """
+    ⚠️ Danger Zone: Permanently delete all uploaded documents 
+    and clear their embeddings from the vector store.
+    """
+    try:
+        rag_service = get_rag_service()
+
+        # Count before deleting
+        total_docs = db.query(Document).count()
+        total_chunks = rag_service.vectorstore.get_count()
+
+        # 🧹 Delete all records from Document table
+        db.query(Document).delete()
+        db.commit()
+
+        # 🧠 Clear vector store too
+        try:
+            rag_service.vectorstore.clear()
+        except Exception as e:
+            logger.error(f"Vector store clear failed: {str(e)}", exc_info=True)
+
+        return {
+            "status": "success",
+            "message": f"All {total_docs} documents and {total_chunks} chunks have been cleared.",
+            "documents_deleted": total_docs,
+            "chunks_deleted": total_chunks
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to clear documents: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to clear documents: {str(e)}")
+
+# ============================================================
 # 📄 Document Management
 # ============================================================
 @router.get("/documents")

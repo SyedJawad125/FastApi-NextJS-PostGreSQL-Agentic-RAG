@@ -50,17 +50,19 @@ async def query_rag(request: RAGQueryRequest, db: Session = Depends(get_db)):
         rag_service = get_rag_service()
 
         # ✅ Map strategy string to enum
-        if request.strategy == "simple":
-            strategy = RAGStrategy.SIMPLE
-        elif request.strategy == "agentic":
-            strategy = RAGStrategy.AGENTIC
-        elif request.strategy == "auto":
-            strategy = RAGStrategy.AUTO
-        else:
+        strategy_map = {
+            "simple": RAGStrategy.SIMPLE,
+            "agentic": RAGStrategy.AGENTIC,
+            "auto": RAGStrategy.AUTO
+        }
+
+        if request.strategy not in strategy_map:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid strategy: {request.strategy}. Use: simple, agentic, or auto"
             )
+
+        strategy = strategy_map[request.strategy]
 
         # ✅ Execute orchestrator
         result = await rag_service.execute_query(
@@ -133,6 +135,7 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
             raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
         rag_service = get_rag_service()
+        # ✅ Use process_document instead of ingest_document
         result = await rag_service.process_document(
             filename=file.filename,
             content=content,

@@ -387,56 +387,6 @@ async def upload_document(
 
 
 # ============================================================
-# 🧹 Force Clear: Drop Collection + DB
-# ============================================================
-
-# @router.delete("/documents/clear", summary="Force clear all documents and vector store")
-# async def clear_all_documents(db: Session = Depends(get_db)):
-#     """
-#     ⚠️ Permanently delete all documents:
-#     - 🗄️ From DB
-#     - 🧠 From vector store (drop + recreate collection)
-#     - 🧼 Clear memory caches if needed
-#     """
-
-#     try:
-#         rag_service = get_rag_service()
-
-#         total_docs = db.query(Document).count()
-#         total_chunks = rag_service.vectorstore.get_count() if hasattr(rag_service.vectorstore, "get_count") else 0
-
-#         # 🗄️ Delete from database
-#         db.query(Document).delete()
-#         db.commit()
-
-#         # 🧠 Drop and recreate collection in vector store
-#         try:
-#             if hasattr(rag_service.vectorstore, "delete_collection"):
-#                 # ✅ For Qdrant / Chroma / other backends
-#                 rag_service.vectorstore.delete_collection()
-#                 rag_service.vectorstore.create_collection()
-#             elif hasattr(rag_service.vectorstore, "clear"):
-#                 # fallback: at least clear
-#                 rag_service.vectorstore.clear()
-
-#         except Exception as e:
-#             logger.error(f"❌ Failed to clear vector store: {e}", exc_info=True)
-#             raise HTTPException(status_code=500, detail="Vector store clear failed")
-
-#         return {
-#             "status": "success",
-#             "message": f"🧹 Successfully deleted {total_docs} documents and {total_chunks} chunks. Collection fully reset.",
-#             "documents_deleted": total_docs,
-#             "chunks_deleted": total_chunks
-#         }
-
-#     except Exception as e:
-#         db.rollback()
-#         logger.error(f"❌ Failed to clear documents: {e}", exc_info=True)
-#         raise HTTPException(status_code=500, detail=f"Failed to clear documents: {str(e)}")
-
-
-# ============================================================
 # 🧹 Clear All Documents Endpoint
 # ============================================================
 @router.delete("/documents/clear")

@@ -7,6 +7,8 @@ from datetime import datetime
 import uuid
 
 from app.core.enums import RAGStrategy
+from app.models.rag_model import Session
+from app.services.rag_service import graph_rag_query
 
 logger = logging.getLogger(__name__)
 
@@ -347,3 +349,18 @@ def get_rag_orchestrator() -> RAGOrchestrator:
     if _rag_orchestrator is None:
         _rag_orchestrator = RAGOrchestrator()
     return _rag_orchestrator
+
+async def process_query(query_text: str, strategy: str, db: Session):
+    if strategy == "graph_rag":
+        context = await graph_rag_query(query_text, db)
+    elif strategy == "hybrid":
+        # Combine vector + graph
+        vector_context = await vector_search(query_text, db)
+        graph_context = await graph_rag_query(query_text, db)
+        context = merge_contexts(vector_context, graph_context)
+    else:
+        context = await vector_search(query_text, db)
+    
+    # Generate answer using Groq
+    answer = await generate_answer(query_text, context)
+    return answer

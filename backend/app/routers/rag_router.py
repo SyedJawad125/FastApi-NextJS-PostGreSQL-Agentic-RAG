@@ -1,11 +1,8 @@
-"""
-===================================================================
-app/routers/rag_router.py - ✅ Final Working RAG Router
-===================================================================
-"""
+import io
 import os
 import traceback
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Depends
+from openai import BaseModel
 from sqlalchemy.orm import Session
 from typing import Dict
 import time
@@ -26,6 +23,8 @@ from app.core.config import get_db
 from app.models.rag_model import (
     Document,
     DocumentChunk,
+    GraphEntity,
+    GraphRelationship,
     Query as QueryModel,
     Session as SessionModel
 )
@@ -33,6 +32,8 @@ from app.models.rag_model import (
 # Orchestrator service
 from app.core.dependencies import get_rag_service
 from app.core.enums import RAGStrategy
+from app.services.chunking import chunk_text
+from app.services.vectorstore import get_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ router = APIRouter(prefix="/api/rag", tags=["RAG System"])
 async def query_rag(request: RAGQueryRequest, db: Session = Depends(get_db)):
     """Main RAG query endpoint with strategy support."""
     try:
-        logger.info(f"Received query: {request.query[:50]}...")
+        logger.info(f"[QUERY] Received query: {request.query[:50]}...")
         start_time = time.time()
 
         rag_service = get_rag_service()
@@ -108,7 +109,7 @@ async def query_rag(request: RAGQueryRequest, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Query processing failed: {str(e)}", exc_info=True)
+        logger.error(f"[ERROR] Query processing failed: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
 
@@ -116,283 +117,349 @@ async def query_rag(request: RAGQueryRequest, db: Session = Depends(get_db)):
 # ============================================================
 # 📤 Document Upload Endpoint
 # ============================================================
-# @router.post("/upload", response_model=DocumentUploadResponse)
-# async def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
-#     """Upload and process document for RAG (PDF, TXT, DOCX)."""
-#     try:
-#         logger.info(f"Received file upload: {file.filename}")
+from PyPDF2 import PdfReader
 
-#         allowed_types = [
-#             "application/pdf",
-#             "text/plain",
-#             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-#         ]
-#         if file.content_type not in allowed_types:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"File type not supported. Allowed: PDF, TXT, DOCX. Got: {file.content_type}"
-#             )
-
-#         content = await file.read()
-#         if len(content) == 0:
-#             raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-#         rag_service = get_rag_service()
-#         # ✅ Use process_document instead of ingest_document
-#         result = await rag_service.process_document(
-#             filename=file.filename,
-#             content=content,
-#             content_type=file.content_type
-#         )
-
-#         db_doc = Document(
-#             id=str(uuid.uuid4()),
-#             filename=file.filename,
-#             content_type=file.content_type,
-#             size=len(content),
-#             status="completed",
-#             chunks_count=result["chunks_created"],
-#             uploaded_at=datetime.utcnow(),
-#             processed_at=datetime.utcnow(),
-#             metadata={
-#                 "original_size": len(content),
-#                 "processing_method": result.get("method", "default")
-#             }
-#         )
-#         db.add(db_doc)
-#         db.commit()
-#         db.refresh(db_doc)
-
-#         return DocumentUploadResponse(
-#             document_id=db_doc.id,
-#             filename=file.filename,
-#             status="success",
-#             chunks_created=result["chunks_created"],
-#             message=f"Document '{file.filename}' processed successfully with {result['chunks_created']} chunks"
-#         )
-
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         logger.error(f"Document upload failed: {str(e)}", exc_info=True)
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail=f"Document upload failed: {str(e)}")
+try:
+    import docx  # python-docx
+except Exception:
+    docx = None
 
 
-
-# @router.post("/upload", response_model=DocumentUploadResponse)
-# async def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
-#     """Upload and process document for RAG (PDF, TXT, DOCX)."""
-#     try:
-#         logger.info(f"📤 Received file upload: {file.filename}")
-
-#         # Validate file type
-#         allowed_types = [
-#             "application/pdf",
-#             "text/plain",
-#             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-#         ]
-#         if file.content_type not in allowed_types:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"File type not supported. Allowed: PDF, TXT, DOCX. Got: {file.content_type}"
-#             )
-
-#         # Read and validate content
-#         content = await file.read()
-#         if len(content) == 0:
-#             raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-#         logger.info(f"📄 File size: {len(content)} bytes")
-
-#         # Process document with RAG service
-#         rag_service = get_rag_service()
-#         result = await rag_service.process_document(
-#             filename=file.filename,
-#             content=content,
-#             content_type=file.content_type
-#         )
-
-#         # Create document ID
-#         doc_id = str(uuid.uuid4())
-        
-#         # Create document record in DB
-#         db_doc = Document(
-#             id=doc_id,
-#             filename=file.filename,
-#             content_type=file.content_type,
-#             size=len(content),
-#             status="processing",
-#             chunks_count=0,
-#             uploaded_at=datetime.utcnow(),
-#             meta_data={
-#                 "original_size": len(content),
-#                 "processing_method": result.get("method", "default")
-#             }
-#         )
-#         db.add(db_doc)
-#         db.flush()  # Get the ID without committing yet
-
-#         # Add chunks to vector store and database
-#         from app.services.vectorstore import get_vector_store
-#         vector_store = get_vector_store()
-        
-#         chunks_created = 0
-#         chunks = result.get("chunks", [])
-        
-#         logger.info(f"🔄 Processing {len(chunks)} chunks for document {doc_id}")
-        
-#         for idx, chunk_data in enumerate(chunks):
-#             # Create chunk record in DB
-#             chunk_id = str(uuid.uuid4())
-#             db_chunk = DocumentChunk(
-#                 id=chunk_id,
-#                 document_id=doc_id,
-#                 content=chunk_data.get("content", chunk_data) if isinstance(chunk_data, dict) else chunk_data,
-#                 chunk_index=idx,
-#                 meta_data={
-#                     "source": file.filename,
-#                     "content_type": file.content_type,
-#                     "chunk_size": len(chunk_data.get("content", chunk_data) if isinstance(chunk_data, dict) else chunk_data)
-#                 },
-#                 created_at=datetime.utcnow()
-#             )
-#             db.add(db_chunk)
-            
-#             # Add to vector store
-#             try:
-#                 vector_store.add_document(
-#                     text=db_chunk.content,
-#                     metadata={
-#                         "chunk_id": chunk_id,
-#                         "chunk_index": idx,
-#                         "document_id": doc_id,
-#                         "source": file.filename,
-#                         "content_type": file.content_type
-#                     }
-#                 )
-#                 chunks_created += 1
-#             except Exception as e:
-#                 logger.error(f"❌ Failed to add chunk {idx} to vector store: {str(e)}")
-#                 # Continue processing other chunks
-        
-#         # Update document status
-#         db_doc.status = "completed"
-#         db_doc.chunks_count = chunks_created
-#         db_doc.processed_at = datetime.utcnow()
-        
-#         # Commit all changes
-#         db.commit()
-#         db.refresh(db_doc)
-        
-#         # Verify vector store count
-#         vector_count = vector_store.get_count()
-#         logger.info(f"✅ Upload complete: {chunks_created} chunks in DB, {vector_count} total vectors in store")
-
-#         return DocumentUploadResponse(
-#             document_id=db_doc.id,
-#             filename=file.filename,
-#             status="success",
-#             chunks_created=chunks_created,
-#             message=f"Document '{file.filename}' processed successfully with {chunks_created} chunks"
-#         )
-
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         logger.error(f"❌ Document upload failed: {str(e)}", exc_info=True)
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail=f"Document upload failed: {str(e)}")
-
-
-
-from fastapi import UploadFile, File, Depends
-from app.services.vectorstore import get_vector_store
-from app.utils.pdf_reader import extract_text_from_file
-from app.services.chunking import chunk_text
-
-@router.post("/documents/upload")
-async def upload_document(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    """Upload and process a document"""
+def extract_text_from_pdf_bytes(pdf_bytes):
+    """Extract text from PDF bytes with enhanced error handling"""
     try:
-        # 1. Save document to database
-        document = Document(
-            filename=file.filename,
-            content_type=file.content_type,
-            size=file.size
-        )
-        db.add(document)
-        db.commit()
-        db.refresh(document)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page_num, page in enumerate(reader.pages):
+            try:
+                page_text = page.extract_text() or ""
+                text += page_text
+                logger.debug(f"[DEBUG] Extracted {len(page_text)} chars from page {page_num + 1}")
+            except Exception as e:
+                logger.warning(f"[WARN] Failed to extract text from page {page_num + 1}: {str(e)}")
+                continue
+        return text
+    except Exception as e:
+        logger.error(f"[ERROR] PDF extraction failed: {str(e)}")
+        raise RuntimeError(f"Failed to extract text from PDF: {str(e)}")
+
+
+def extract_text_from_docx_bytes(file_bytes: bytes) -> str:
+    """Extract text from DOCX bytes with enhanced error handling"""
+    if docx is None:
+        raise RuntimeError("python-docx is not installed. Install with: pip install python-docx")
+    
+    try:
+        doc = docx.Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text for p in doc.paragraphs if p.text]
+        text = "\n".join(paragraphs)
         
-        # 2. Extract text from file
-        file_content = await file.read()
-        extracted_text = extract_text_from_file(file_content, file.content_type)
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text and cell.text.strip():
+                        text += "\n" + cell.text
         
-        # 3. Chunk the text
-        chunks = chunk_text(extracted_text, chunk_size=500, overlap=50)
+        return text.strip()
+    except Exception as e:
+        logger.error(f"[ERROR] DOCX extraction failed: {str(e)}")
+        raise RuntimeError(f"Failed to extract text from DOCX: {str(e)}")
+
+
+def extract_text_from_txt_bytes(file_bytes: bytes) -> str:
+    """Extract text from TXT bytes with enhanced encoding detection"""
+    encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1', 'utf-16']
+    
+    for encoding in encodings:
+        try:
+            text = file_bytes.decode(encoding)
+            # Validate that we got meaningful text
+            if text.strip() and any(char.isalnum() for char in text):
+                logger.debug(f"[DEBUG] Successfully decoded with {encoding}")
+                return text
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            logger.warning(f"[WARN] Encoding {encoding} failed: {str(e)}")
+            continue
+    
+    # Fallback: decode with utf-8 ignoring errors
+    logger.warning("[WARN] All encodings failed, using utf-8 with ignore errors")
+    return file_bytes.decode("utf-8", errors="ignore")
+
+
+# ✅ Update the response model to include processing_time as string
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    status: str
+    chunks_created: int
+    message: str
+    processing_time: str
+
+
+@router.post("/upload", response_model=DocumentUploadResponse)
+async def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Upload and process document for RAG (PDF, TXT, DOCX) with enhanced monitoring and error handling."""
+    start_time = time.time()
+    processing_metrics = {
+        'extraction_time': 0,
+        'chunking_time': 0,
+        'db_operations_time': 0,
+        'vector_store_time': 0,
+        'total_chars_processed': 0
+    }
+    
+    try:
+        logger.info(f"[UPLOAD] Received file upload: {file.filename} (Size: {file.size or 'unknown'})")
+
+        # Validate file type
+        allowed_types = [
+            "application/pdf",
+            "text/plain",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ]
         
-        # 4. Get vector store
-        vector_store = get_vector_store()
+        if file.content_type not in allowed_types:
+            # Also check by file extension as fallback
+            file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+            if file_extension not in ['pdf', 'txt', 'docx']:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File type not supported. Allowed: PDF, TXT, DOCX. Got: {file.content_type}"
+                )
+            else:
+                logger.info(f"[INFO] Using file extension {file_extension} for content type detection")
+
+        # Read bytes
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+        file_size_mb = len(content) / (1024 * 1024)
+        logger.info(f"[FILE] File size: {len(content)} bytes ({file_size_mb:.2f} MB)")
+
+        # Extract text based on content type with timing
+        extraction_start = time.time()
+        try:
+            if file.content_type == "application/pdf":
+                text = extract_text_from_pdf_bytes(content)
+            elif file.content_type == "text/plain":
+                text = extract_text_from_txt_bytes(content)
+            elif file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                text = extract_text_from_docx_bytes(content)
+            else:
+                # Fallback: try to detect by extension
+                if file.filename.lower().endswith('.pdf'):
+                    text = extract_text_from_pdf_bytes(content)
+                elif file.filename.lower().endswith('.docx'):
+                    text = extract_text_from_docx_bytes(content)
+                else:
+                    text = extract_text_from_txt_bytes(content)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Text extraction failed: {str(e)}")
         
-        # 5. Add each chunk to database AND vector store
-        for idx, chunk_text in enumerate(chunks):
-            # Save chunk to database
-            chunk = DocumentChunk(
-                document_id=document.id,
-                content=chunk_text,
-                chunk_index=idx
-            )
-            db.add(chunk)
-            
-            # Add to vector store with metadata
-            vector_store.add_document(
-                text=chunk_text,
-                metadata={
-                    "document_id": document.id,
-                    "chunk_index": idx,
-                    "source": file.filename,
-                    "content_type": file.content_type,
-                    "size": file.size
+        processing_metrics['extraction_time'] = time.time() - extraction_start
+
+        # Enhanced text validation
+        if not text or text.strip() == "":
+            logger.warning(f"[WARN] No extractable text found in {file.filename}, content type: {file.content_type}")
+            raise HTTPException(status_code=400, detail="No extractable text found in uploaded document")
+
+        # Check if text is meaningful (not just whitespace/formatting)
+        clean_text = text.strip()
+        if len(clean_text) < 10:
+            logger.warning(f"[WARN] Very little text extracted from {file.filename}: {len(clean_text)} chars")
+            raise HTTPException(status_code=400, detail="Extracted text appears to be too short or invalid")
+
+        processing_metrics['total_chars_processed'] = len(clean_text)
+        logger.info(f"[TEXT] Extracted {len(clean_text)} characters from document")
+
+        # Chunk the extracted text with timing
+        chunking_start = time.time()
+        chunks = chunk_text(clean_text)
+        processing_metrics['chunking_time'] = time.time() - chunking_start
+
+        # Validate chunks
+        if not isinstance(chunks, list):
+            raise HTTPException(status_code=500, detail="chunk_text did not return a list of chunks")
+
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No chunks generated from document text")
+
+        if len(chunks) == 0:
+            raise HTTPException(status_code=400, detail="Empty chunks list generated")
+
+        logger.info(f"[CHUNKS] Generated {len(chunks)} chunks for file {file.filename}")
+
+        # Calculate chunk statistics
+        chunk_sizes = []
+        for chunk in chunks:
+            chunk_text_content = chunk.get("content") if isinstance(chunk, dict) else chunk
+            if chunk_text_content:
+                chunk_sizes.append(len(chunk_text_content))
+
+        if chunk_sizes:
+            logger.info(f"[STATS] Chunk sizes: min={min(chunk_sizes)}, max={max(chunk_sizes)}, avg={sum(chunk_sizes)/len(chunk_sizes):.0f}")
+
+        # ✅ Create document ID and DB record within transaction
+        doc_id = str(uuid.uuid4())
+        db_operations_start = time.time()
+        
+        try:
+            db_doc = Document(
+                id=doc_id,
+                filename=file.filename,
+                content_type=file.content_type,
+                size=len(content),
+                status="processing",
+                chunks_count=0,
+                uploaded_at=datetime.utcnow(),
+                meta_data={
+                    "original_size": len(content),
+                    "processing_method": "local_extraction",
+                    "extracted_chars": len(clean_text),
+                    "chunks_generated": len(chunks)
                 }
             )
-        
-        db.commit()
-        
-        # 6. Verify
-        total_chunks = db.query(DocumentChunk).filter(
-            DocumentChunk.document_id == document.id
-        ).count()
-        vector_count = vector_store.get_count()
-        
-        logger.info(f"✅ Document uploaded: {file.filename}")
-        logger.info(f"📊 Created {total_chunks} chunks, {vector_count} total vectors")
-        
-        return {
-            "status": "success",
-            "document_id": document.id,
-            "filename": file.filename,
-            "chunks_created": total_chunks,
-            "total_vectors": vector_count
-        }
-        
+            db.add(db_doc)
+            db.flush()
+
+            # Add chunks to vector store and database
+            vector_store = get_vector_store()
+            vector_store_start = time.time()
+            
+            chunks_created = 0
+            failed_chunks = 0
+            chunk_details = []
+
+            for idx, chunk in enumerate(chunks):
+                try:
+                    chunk_text_content = chunk.get("content") if isinstance(chunk, dict) else chunk
+                    if not chunk_text_content or not chunk_text_content.strip():
+                        logger.warning(f"[WARN] Skipping empty chunk at index {idx}")
+                        failed_chunks += 1
+                        continue
+
+                    chunk_id = str(uuid.uuid4())
+
+                    # Create database chunk record
+                    db_chunk = DocumentChunk(
+                        id=chunk_id,
+                        document_id=doc_id,
+                        content=chunk_text_content,
+                        chunk_index=idx,
+                        meta_data={
+                            "source": file.filename,
+                            "content_type": file.content_type,
+                            "chunk_size": len(chunk_text_content),
+                            "chunk_chars": len(chunk_text_content)
+                        },
+                        created_at=datetime.utcnow()
+                    )
+                    db.add(db_chunk)
+
+                    # Add to vector store
+                    vector_store.add_document(
+                        text=chunk_text_content,
+                        metadata={
+                            "chunk_id": chunk_id,
+                            "chunk_index": idx,
+                            "document_id": doc_id,
+                            "source": file.filename,
+                            "content_type": file.content_type,
+                            "chunk_size": len(chunk_text_content)
+                        }
+                    )
+                    chunks_created += 1
+                    chunk_details.append({
+                        "index": idx,
+                        "size": len(chunk_text_content),
+                        "status": "success"
+                    })
+
+                except Exception as e:
+                    logger.error(f"[ERROR] Failed to process chunk {idx}: {str(e)}")
+                    failed_chunks += 1
+                    chunk_details.append({
+                        "index": idx,
+                        "size": len(chunk_text_content) if chunk_text_content else 0,
+                        "status": "failed",
+                        "error": str(e)
+                    })
+                    continue
+
+            processing_metrics['vector_store_time'] = time.time() - vector_store_start
+
+            # Update document record
+            db_doc.status = "completed" if chunks_created > 0 else "failed"
+            db_doc.chunks_count = chunks_created
+            db_doc.processed_at = datetime.utcnow()
+            db_doc.meta_data.update({
+                "chunks_created": chunks_created,
+                "chunks_failed": failed_chunks,
+                "processing_metrics": processing_metrics,
+                "chunk_details": chunk_details
+            })
+
+            processing_metrics['db_operations_time'] = time.time() - db_operations_start
+
+            # Commit transaction
+            db.commit()
+            db.refresh(db_doc)
+
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[ERROR] Database transaction failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
+
+        # Log final statistics
+        total_processing_time = time.time() - start_time
+        logger.info(f"[SUCCESS] Upload complete: {chunks_created} chunks created, {failed_chunks} failed")
+        logger.info(f"[TIME] Processing times - Total: {total_processing_time:.2f}s, "
+                   f"Extraction: {processing_metrics['extraction_time']:.2f}s, "
+                   f"Chunking: {processing_metrics['chunking_time']:.2f}s, "
+                   f"DB: {processing_metrics['db_operations_time']:.2f}s, "
+                   f"Vector: {processing_metrics['vector_store_time']:.2f}s")
+
+        # Optional: get vector count
+        try:
+            vector_count = vector_store.get_count()
+            logger.info(f"[VECTOR] Vector store now contains {vector_count} total vectors")
+        except Exception as e:
+            logger.warning(f"[WARN] Could not retrieve vector count: {str(e)}")
+
+        # ✅ Format processing time as "4.4 seconds"
+        formatted_time = f"{total_processing_time:.1f} seconds"
+
+        # ✅ Return the response with processing_time as formatted string
+        return DocumentUploadResponse(
+            document_id=db_doc.id,
+            filename=file.filename,
+            status="success",
+            chunks_created=chunks_created,
+            message=f"Document '{file.filename}' processed successfully with {chunks_created} chunks",
+            processing_time=formatted_time
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        db.rollback()
-        logger.error(f"❌ Upload failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
+        logger.error(f"[ERROR] Document upload failed: {str(e)}", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass  # Already rolled back or no transaction
+        raise HTTPException(status_code=500, detail=f"Document upload failed: {str(e)}")
+    
 # ============================================================
 # 🧹 Clear All Documents Endpoint
 # ============================================================
 @router.delete("/documents/clear")
 async def clear_all_documents(db: Session = Depends(get_db)):
     """
-    ⚠️ Danger Zone: Permanently delete all uploaded documents 
+    [DANGER] Danger Zone: Permanently delete all uploaded documents 
     and clear their embeddings from the vector store.
     """
     try:
@@ -406,7 +473,7 @@ async def clear_all_documents(db: Session = Depends(get_db)):
         total_chunks = db.query(DocumentChunk).count()
         vector_count = vector_store.get_count()
         
-        logger.info(f"📊 Before deletion: {total_docs} docs, {total_chunks} chunks, {vector_count} vectors")
+        logger.info(f"[STATS] Before deletion: {total_docs} docs, {total_chunks} chunks, {vector_count} vectors")
         
         # 🧠 Clear vector store FIRST and reset singleton
         try:
@@ -419,29 +486,29 @@ async def clear_all_documents(db: Session = Depends(get_db)):
             vector_store = get_vector_store()
             after_clear = vector_store.get_count()
             
-            logger.info(f"✅ Vector store cleared and reset: {vector_count} → {after_clear}")
+            logger.info(f"[SUCCESS] Vector store cleared and reset: {vector_count} -> {after_clear}")
             
             if after_clear > 0:
                 raise Exception(f"Vector store not fully cleared: {after_clear} items remain")
             
         except Exception as e:
-            logger.error(f"❌ Vector store clear failed: {str(e)}", exc_info=True)
+            logger.error(f"[ERROR] Vector store clear failed: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to clear vector store: {str(e)}")
         
         # 🧹 Delete from database (this cascades to chunks)
         deleted_docs = db.query(Document).delete()
         db.commit()
-        logger.info(f"✅ Database cleared: {deleted_docs} documents deleted")
+        logger.info(f"[SUCCESS] Database cleared: {deleted_docs} documents deleted")
         
         # Final verification
         remaining_docs = db.query(Document).count()
         remaining_chunks = db.query(DocumentChunk).count()
         remaining_vectors = vector_store.get_count()
         
-        logger.info(f"📊 After deletion: {remaining_docs} docs, {remaining_chunks} chunks, {remaining_vectors} vectors")
+        logger.info(f"[STATS] After deletion: {remaining_docs} docs, {remaining_chunks} chunks, {remaining_vectors} vectors")
         
         if remaining_docs > 0 or remaining_chunks > 0 or remaining_vectors > 0:
-            logger.warning(f"⚠️ Incomplete deletion detected!")
+            logger.warning(f"[WARN] Incomplete deletion detected!")
             return {
                 "status": "partial_success",
                 "message": "Some data may not have been fully cleared",
@@ -472,7 +539,7 @@ async def clear_all_documents(db: Session = Depends(get_db)):
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"❌ Failed to clear documents: {str(e)}", exc_info=True)
+        logger.error(f"[ERROR] Failed to clear documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to clear documents: {str(e)}")
 
 # ============================================================
@@ -501,7 +568,7 @@ async def list_documents(skip: int = 0, limit: int = 100, db: Session = Depends(
             ]
         }
     except Exception as e:
-        logger.error(f"Failed to fetch documents: {str(e)}")
+        logger.error(f"[ERROR] Failed to fetch documents: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -578,11 +645,6 @@ async def get_query(query_id: str, db: Session = Depends(get_db)):
 # ============================================================
 # 🧪 Health & Stats
 # ============================================================
-"""
-Real Health Check - Tests actual service functionality
-Add this to your rag_router.py
-"""
-
 @router.get("/health", response_model=HealthCheckResponse)
 async def health_check(db: Session = Depends(get_db)):
     """
@@ -680,7 +742,6 @@ async def health_check(db: Session = Depends(get_db)):
         version="2.0.0",
         components=components
     )
-
 
 
 @router.get("/health/detailed")
@@ -928,12 +989,12 @@ async def get_session(session_id: str, db: Session = Depends(get_db)):
 # ============================================================
 @router.get("/test")
 async def test_endpoint():
-    return {"message": "✅ RAG router is working!"}
+    return {"message": "[SUCCESS] RAG router is working!"}
 
 
 @router.get("/debug/vectorstore")
 async def debug_vectorstore():
-    """🔍 Debug endpoint to check vector store state"""
+    """[DEBUG] Debug endpoint to check vector store state"""
     try:
         from app.services.vectorstore import get_vector_store
         
@@ -950,9 +1011,46 @@ async def debug_vectorstore():
             "metadata_list_length": len(vector_store.metadata)
         }
     except Exception as e:
-        logger.error(f"Debug endpoint failed: {str(e)}", exc_info=True)
+        logger.error(f"[ERROR] Debug endpoint failed: {str(e)}", exc_info=True)
         return {
             "status": "error",
             "error": str(e),
             "traceback": traceback.format_exc()
         }
+    
+    
+# In routers/rag_router.py
+
+@router.get("/graph/{document_id}")
+async def get_document_graph(document_id: str, db: Session = Depends(get_db)):
+    """
+    Get graph structure for a document
+    """
+    entities = db.query(GraphEntity).filter(
+        GraphEntity.properties["document_id"].astext == document_id
+    ).all()
+    
+    relationships = db.query(GraphRelationship).join(
+        GraphEntity, GraphEntity.id == GraphRelationship.source_id
+    ).filter(
+        GraphEntity.properties["document_id"].astext == document_id
+    ).all()
+    
+    return {
+        "nodes": [
+            {
+                "id": e.id,
+                "name": e.name,
+                "type": e.type,
+                "description": e.description
+            } for e in entities
+        ],
+        "edges": [
+            {
+                "source": r.source_id,
+                "target": r.target_id,
+                "relation": r.relation_type,
+                "weight": r.weight
+            } for r in relationships
+        ]
+    }

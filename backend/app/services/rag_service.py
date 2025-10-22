@@ -194,6 +194,7 @@ import io
 import logging
 from typing import List, Dict, Any, Optional
 import PyPDF2
+from app.models.rag_model import DocumentChunk, GraphEntity, GraphRelationship, Session
 import docx
 from sentence_transformers import SentenceTransformer
 import chromadb
@@ -462,3 +463,49 @@ Note: This is a direct excerpt from the documents. For more sophisticated answer
         except Exception as e:
             logger.error(f"Failed to reset collection: {e}")
             raise
+
+async def graph_rag_query(query_text: str, db: Session):
+    """
+    Use graph relationships to enhance context retrieval
+    """
+    # Step 1: Extract entities from query
+    query_entities = await extract_entities_from_query(query_text)
+    
+    # Step 2: Find related entities from graph
+    related_entities = []
+    for entity_name in query_entities:
+        # Find entity in graph
+        entity = db.query(GraphEntity).filter(
+            GraphEntity.name.ilike(f"%{entity_name}%")
+        ).first()
+        
+        if entity:
+            # Get connected entities via relationships
+            relationships = db.query(GraphRelationship).filter(
+                (GraphRelationship.source_id == entity.id) |
+                (GraphRelationship.target_id == entity.id)
+            ).all()
+            
+            for rel in relationships:
+                related_entity = db.query(GraphEntity).filter(
+                    GraphEntity.id.in_([rel.source_id, rel.target_id])
+                ).all()
+                related_entities.extend(related_entity)
+    
+    # Step 3: Get document chunks related to these entities
+    relevant_chunks = []
+    for entity in related_entities:
+        doc_id = entity.properties.get("document_id")
+        if doc_id:
+            chunks = db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == doc_id
+            ).all()
+            relevant_chunks.extend(chunks)
+    
+    # Step 4: Combine with vector search results
+    vector_chunks = await vector_search(query_text, db)
+    
+    # Step 5: Build enriched context
+    context = build_graph_enriched_context(relevant_chunks, vector_chunks, related_entities)
+    
+    return context
